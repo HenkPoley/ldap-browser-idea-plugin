@@ -108,9 +108,9 @@ public class LdapUserPasswordDialog extends DialogWrapper {
                     verifyPasswordButton.setEnabled(false);
                     SwingUtilities.invokeLater(() -> {
                         if (verifyPassword(verifyPasswordField.getPassword())) {
-                            verifyPasswordField.setIcon(AllIcons.Actions.CheckedBlack);
+                            verifyPasswordField.setIcon(AllIcons.General.InspectionsOK);
                         } else {
-                            verifyPasswordField.setIcon(AllIcons.Actions.Cross);
+                            verifyPasswordField.setIcon(AllIcons.General.Error);
                             Messages.showErrorDialog(LdapUserPasswordDialog.this.getContentPane(), "Password Mismatch", "Password Mismatch");
                         }
                         verifyPasswordField.setEnabled(true);

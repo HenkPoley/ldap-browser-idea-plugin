@@ -1,16 +1,28 @@
-import org.apache.tools.ant.filters.ReplaceTokens
-
 plugins {
-    id 'org.jetbrains.intellij' version '0.4.8'
+    id 'java'
+    id 'org.jetbrains.intellij.platform' version '2.6.0'
 }
 
-apply plugin: 'idea'
-apply plugin: 'org.jetbrains.intellij'
-apply plugin: 'java'
+version = project.version
+def javaRelease = providers.gradleProperty('javaVersion').get().toInteger()
 
-version = "${version}"
-sourceCompatibility = javaVersion
-targetCompatibility = javaVersion
+repositories {
+    mavenCentral()
+
+    intellijPlatform {
+        defaultRepositories()
+    }
+}
+
+dependencies {
+    implementation group: 'org.apache.directory.api', name: 'api-all', version: apacheDirectoryApiVersion
+
+    intellijPlatform {
+        local idePath
+        instrumentationTools()
+        pluginVerifier()
+    }
+}
 
 sourceSets {
     main {
@@ -19,39 +31,20 @@ sourceSets {
     }
 }
 
-processResources {
-    filesMatching('**/plugin.xml') {
-        filter ReplaceTokens, tokens: [
-            version                  : version.toString(),
-            apacheDirectoryApiVersion: apacheDirectoryApiVersion
-        ]
+intellijPlatform {
+    pluginConfiguration {
+        name = 'LDAP browser'
+        version = project.version
+
+        ideaVersion {
+            sinceBuild = '261'
+            untilBuild = '261.*'
+        }
     }
+
 }
 
-intellij {
-    pluginName 'ldap-browser-idea-plugin'
-    version ideaVersion
-    updateSinceUntilBuild false
-    sandboxDirectory "$project.buildDir/plugin-sandbox"
-
-    publishPlugin {
-        username System.getenv('SB_JETBRAINS_USERNAME')
-        password System.getenv('SB_JETBRAINS_PASSWORD')
-    }
-}
-
-configurations.all {
-    exclude group: 'org.slf4j', module: ''
-}
-
-tasks.withType(JavaCompile) {
+tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-}
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    compile group: 'org.apache.directory.api', name: 'api-all', version: apacheDirectoryApiVersion
+    options.release = javaRelease
 }

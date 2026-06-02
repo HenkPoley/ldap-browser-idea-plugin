@@ -14,12 +14,13 @@ public class OpenConnectionsAction extends LdapTreeAction {
     @Override
     public void actionPerformed(AnActionEvent e) {
         LdapConnectionsService connectionsService = getConnectionsService();
-        LdapTreePanel treePanel = getTreePanel();
-        LdapConnectionInfosDialog ldapConnectionInfosDialog = new LdapConnectionInfosDialog(treePanel.getTree(), e.getProject(), connectionsService.getLdapConnectionInfos());
-        if (ldapConnectionInfosDialog.showAndGet()) {
-            connectionsService.setLdapConnectionInfos(ldapConnectionInfosDialog.getConnectionInfos());
-            treePanel.reloadTree();
-        }
+        getTreePanel(e).ifPresent(treePanel -> {
+            LdapConnectionInfosDialog ldapConnectionInfosDialog = new LdapConnectionInfosDialog(treePanel.getTree(), e.getProject(), connectionsService.getLdapConnectionInfos());
+            if (ldapConnectionInfosDialog.showAndGet()) {
+                connectionsService.setLdapConnectionInfos(ldapConnectionInfosDialog.getConnectionInfos());
+                treePanel.reloadTree();
+            }
+        });
     }
 
     @Override

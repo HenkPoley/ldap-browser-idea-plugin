@@ -1,11 +1,11 @@
 package org.majki.intellij.ldapbrowser.ldap.ui;
 
-import com.intellij.util.enumeration.ArrayListEnumeration;
 import org.majki.intellij.ldapbrowser.ldap.LdapConnectionInfo;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeNode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -51,8 +51,9 @@ public class LdapRootTreeNode extends DefaultMutableTreeNode implements TreeNode
     }
 
     @Override
-    public Enumeration children() {
-        return new ArrayListEnumeration((ArrayList) children);
+    @SuppressWarnings("unchecked")
+    public Enumeration<TreeNode> children() {
+        return Collections.enumeration((List<TreeNode>) (List<?>) children);
     }
 
     @Override

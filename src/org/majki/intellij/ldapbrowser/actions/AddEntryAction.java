@@ -1,6 +1,5 @@
 package org.majki.intellij.ldapbrowser.actions;
 
-import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.ui.treeStructure.Tree;
@@ -13,6 +12,7 @@ import org.majki.intellij.ldapbrowser.ldap.*;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapConnectionInfoTreeNode;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapErrorHandler;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapTreeNode;
+import org.majki.intellij.ldapbrowser.toolwindow.LdapTreePanel;
 
 
 public class AddEntryAction extends LdapTreeAction {
@@ -21,22 +21,21 @@ public class AddEntryAction extends LdapTreeAction {
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        Tree tree = getTreePanel().getTree();
-        getSelectedNodes()
+        getTreePanel(e).ifPresent(treePanel -> getSelectedNodes(treePanel.getTree())
             .filter(LdapTreeNode.class::isInstance)
             .map(LdapTreeNode.class::cast)
             .findFirst()
-            .ifPresent(treeNode -> {
-                LdapAddEntryDialog addEntryDialog = new LdapAddEntryDialog(tree, treeNode);
-                if (addEntryDialog.showAndGet()) {
-                    if (addEntry(addEntryDialog, treeNode.getLdapNode().getConnection())) {
-                        ActionManager.getInstance().getAction(RefreshAction.ID).actionPerformed(null);
-                    }
-                }
-            });
+            .ifPresent(treeNode -> addEntry(treePanel, treeNode)));
     }
 
-    private boolean addEntry(LdapAddEntryDialog dialog, LdapConnection ldapConnection) {
+    public static void addEntry(LdapTreePanel treePanel, LdapTreeNode treeNode) {
+        LdapAddEntryDialog addEntryDialog = new LdapAddEntryDialog(treePanel.getTree(), treeNode);
+        if (addEntryDialog.showAndGet() && addEntry(addEntryDialog, treeNode.getLdapNode().getConnection())) {
+            treePanel.refreshSelectedNodes();
+        }
+    }
+
+    private static boolean addEntry(LdapAddEntryDialog dialog, LdapConnection ldapConnection) {
         String dn = dialog.getDn();
         LdapObjectClassAttribute rdn = dialog.getRdn();
         String rdnValue = dialog.getRdnValue();
@@ -68,7 +67,7 @@ public class AddEntryAction extends LdapTreeAction {
 
     @Override
     public void update(AnActionEvent e) {
-        boolean canAddEntry = getSelectedNodes()
+        boolean canAddEntry = getSelectedNodes(e)
             .findFirst()
             .map(LdapConnectionInfoTreeNode::getConnectionInfo)
             .filter(LdapConnectionInfo::isOpened)

@@ -16,25 +16,26 @@ public class RefreshAction extends LdapTreeAction {
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        LdapTreePanel treePanel = getTreePanel();
+        getTreePanel(e).ifPresent(treePanel -> {
 
-        LdapTreeNode[] selectedTreeNodes = treePanel.getTree().getSelectedNodes(LdapTreeNode.class, null);
-        if (selectedTreeNodes.length > 0) {
-            for (LdapTreeNode selectedNode : selectedTreeNodes) {
-                try {
-                    selectedNode.getLdapNode().refreshWithChildren();
-                    ((DefaultTreeModel) treePanel.getTree().getModel()).nodeStructureChanged(selectedNode);
-                } catch (LdapException e1) {
-                    LdapErrorHandler.handleError(e1, "Could not refresh node");
+            LdapTreeNode[] selectedTreeNodes = treePanel.getTree().getSelectedNodes(LdapTreeNode.class, null);
+            if (selectedTreeNodes.length > 0) {
+                for (LdapTreeNode selectedNode : selectedTreeNodes) {
+                    try {
+                        selectedNode.getLdapNode().refreshWithChildren();
+                        ((DefaultTreeModel) treePanel.getTree().getModel()).nodeStructureChanged(selectedNode);
+                    } catch (LdapException e1) {
+                        LdapErrorHandler.handleError(e1, "Could not refresh node");
+                    }
                 }
             }
-        }
 
-        LdapServerTreeNode[] selectedServerTreeNodes = treePanel.getTree().getSelectedNodes(LdapServerTreeNode.class, null);
-        if (selectedServerTreeNodes.length > 0) {
-            treePanel.reloadTree();
-            // TODO: reload only selected
-        }
+            LdapServerTreeNode[] selectedServerTreeNodes = treePanel.getTree().getSelectedNodes(LdapServerTreeNode.class, null);
+            if (selectedServerTreeNodes.length > 0) {
+                treePanel.reloadTree();
+                // TODO: reload only selected
+            }
+        });
     }
 
     @Override

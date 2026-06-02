@@ -3,11 +3,12 @@ package org.majki.intellij.ldapbrowser.editor;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorPolicy;
 import com.intellij.openapi.fileEditor.FileEditorProvider;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
-public class LdapNodeEditorProvider implements FileEditorProvider {
+public class LdapNodeEditorProvider implements FileEditorProvider, DumbAware {
 
     private static final String TYPE = "LDAP";
 

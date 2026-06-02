@@ -1,6 +1,10 @@
 package org.majki.intellij.ldapbrowser.dialog;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.ValidationInfo;
@@ -16,7 +20,6 @@ import org.apache.directory.ldap.client.api.LdapConnectionConfig;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.majki.intellij.ldapbrowser.ldap.LdapConnectionInfo;
-import org.majki.intellij.ldapbrowser.ldap.LdapUtil;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapServerTreeNode;
 
 import javax.swing.*;
@@ -31,6 +34,7 @@ import java.util.stream.Collectors;
 public class LdapConnectionInfosDialog extends DialogWrapper {
 
     private CollectionListModel<LdapConnectionInfo> connectionListModel;
+    private final Project project;
     private boolean initialized;
     private LdapConnectionInfo selectedConnectionInfo;
     private JBSplitter splitter;
@@ -58,6 +62,7 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
         this.connectionListModel = new CollectionListModel<>(connectionInfos.stream().
             map(LdapConnectionInfo::getCopy).
             collect(Collectors.toList()));
+        this.project = project;
         this.initialized = false;
         this.selectedConnectionInfo = null;
 
@@ -125,12 +130,7 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
             protected void textChanged(DocumentEvent documentEvent) {
                 if (selectedConnectionInfo != null) {
                     connectionTestResultLabel.setText("");
-                    try {
-                        Integer number = Integer.parseInt(textField.getText());
-                        textChangedToIntFunction.changed(number);
-                    } catch (NumberFormatException e) {
-                        textChangedToIntFunction.changed(-1);
-                    }
+                    textChangedToIntFunction.changed(parsePort(textField.getText()));
                 }
             }
         });
@@ -147,7 +147,7 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
             addTextChangedDocumentAdapter(passwordField, text -> selectedConnectionInfo.setPassword(text));
             addTextChangedToIntDocumentAdapter(portField, number -> {
                 selectedConnectionInfo.setPort(number);
-                if (number <= 0) {
+                if (number <= 0 || number > 65535) {
                     portField.setForeground(JBColor.RED);
                 } else {
                     portField.setForeground(normalFieldForegroundColor);
@@ -208,20 +208,30 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
     }
 
     private void testConnection() {
+        LdapConnectionInfo connectionInfo = selectedConnectionInfo;
+        if (connectionInfo == null) {
+            return;
+        }
         testConnectionButton.setIcon(AllIcons.Process.Step_passive);
         testConnectionButton.setText("Testing...");
         testConnectionButton.setEnabled(false);
-        SwingUtilities.invokeLater(() -> {
-            if (selectedConnectionInfo.testConnection()) {
-                connectionTestResultLabel.setForeground(JBColor.GREEN);
-                connectionTestResultLabel.setText("Connection successful");
-            } else {
-                connectionTestResultLabel.setForeground(JBColor.RED);
-                connectionTestResultLabel.setText("Connection failed");
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Testing LDAP Connection", false) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                boolean connected = connectionInfo.testConnection();
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    if (connected) {
+                        connectionTestResultLabel.setForeground(JBColor.GREEN);
+                        connectionTestResultLabel.setText("Connection successful");
+                    } else {
+                        connectionTestResultLabel.setForeground(JBColor.RED);
+                        connectionTestResultLabel.setText("Connection failed");
+                    }
+                    testConnectionButton.setEnabled(true);
+                    testConnectionButton.setText("Test connection");
+                    testConnectionButton.setIcon(null);
+                });
             }
-            testConnectionButton.setEnabled(true);
-            testConnectionButton.setText("Test connection");
-            testConnectionButton.setIcon(null);
         });
     }
 
@@ -235,7 +245,7 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
     }
 
     private void updatePortAccordingToSSL() {
-        int port = Integer.parseInt(portField.getText());
+        int port = parsePort(portField.getText());
         boolean sslSelected = sslCheckBox.isSelected();
         if (sslSelected && port == LdapConnectionConfig.DEFAULT_LDAP_PORT) {
             portField.setText(String.valueOf(LdapConnectionConfig.DEFAULT_LDAPS_PORT));
@@ -371,11 +381,19 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
 
     private ValidationInfo validatePort(LdapConnectionInfo connectionInfo) {
         ValidationInfo validationInfo = null;
-        if (connectionInfo.getPort() <= 0) {
-            validationInfo = new ValidationInfo("Invalid connection port", portField);
+        if (connectionInfo.getPort() <= 0 || connectionInfo.getPort() > 65535) {
+            validationInfo = new ValidationInfo("Connection port must be a number from 1 to 65535", portField);
             selectConnectionAndFocusField(connectionInfo, portField);
         }
         return validationInfo;
+    }
+
+    private int parsePort(String text) {
+        try {
+            return Integer.parseInt(text == null ? "" : text.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private ValidationInfo validateAuthentication(LdapConnectionInfo connectionInfo) {
@@ -385,10 +403,7 @@ public class LdapConnectionInfosDialog extends DialogWrapper {
             String password = connectionInfo.getPassword();
 
             if (bindDn == null || bindDn.trim().isEmpty()) {
-                validationInfo = new ValidationInfo("BindDN must be defined", bindDnField);
-                selectConnectionAndFocusField(connectionInfo, bindDnField);
-            } else if (!LdapUtil.isValidDnFormula(bindDn)) {
-                validationInfo = new ValidationInfo("BindDN is not valid", bindDnField);
+                validationInfo = new ValidationInfo("Username / Bind DN must be defined", bindDnField);
                 selectConnectionAndFocusField(connectionInfo, bindDnField);
             } else if (password == null || password.isEmpty()) {
                 validationInfo = new ValidationInfo("Password must be defined", passwordField);

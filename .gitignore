@@ -11,7 +11,9 @@
 
 # ignore Gradle build stuff
 .gradle/
+.intellijPlatform/
 build/
+verification-*/
 
 # Ignore old build output
 out/

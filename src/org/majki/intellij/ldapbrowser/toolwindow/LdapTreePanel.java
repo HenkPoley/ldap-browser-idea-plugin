@@ -4,10 +4,11 @@ import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionToolbar;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.JBMenuItem;
 import com.intellij.openapi.ui.JBPopupMenu;
@@ -22,7 +23,6 @@ import org.jetbrains.annotations.NotNull;
 import org.majki.intellij.ldapbrowser.TextBundle;
 import org.majki.intellij.ldapbrowser.actions.AddEntryAction;
 import org.majki.intellij.ldapbrowser.actions.DeleteEntryAction;
-import org.majki.intellij.ldapbrowser.actions.RefreshAction;
 import org.majki.intellij.ldapbrowser.ldap.LdapConnectionsService;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapIconProviderTreeNode;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapRootTreeNode;
@@ -37,46 +37,36 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.function.Consumer;
 
-public class LdapTreePanel extends SimpleToolWindowPanel implements ApplicationComponent {
-
-    private static final String COMPONENT_NAME = "ldapbrowser.treePanel";
+public class LdapTreePanel extends SimpleToolWindowPanel {
 
     private Tree tree;
-    private Project project;
+    private final Project project;
 
-    public LdapTreePanel() {
+    public LdapTreePanel(Project project) {
         super(true, true);
-    }
-
-    public Project getProject() {
-        return project;
-    }
-
-    public void setProject(Project project) {
         this.project = project;
+        initPanel();
     }
 
     private void invokeRefreshAction() {
-        AnAction refreshAction = ActionManager.getInstance().getAction(RefreshAction.ID);
-        if (refreshAction != null) {
-            refreshAction.actionPerformed(null);
-        }
+        reloadTree();
     }
 
-    private void addActionMenuItem(JBPopupMenu menu, String title, Icon icon, String actionId) {
+    private void addActionMenuItem(JBPopupMenu menu, String title, Icon icon, Consumer<LdapTreePanel> action) {
         JBMenuItem menuItem = new JBMenuItem(title, icon);
-        menuItem.addActionListener(e -> ActionManager.getInstance().getAction(actionId).actionPerformed(null));
+        menuItem.addActionListener(e -> action.accept(this));
         menu.add(menuItem);
     }
 
     private void openTreePopupMenu(LdapTreeNode ldapTreeNode, int x, int y) {
         JBPopupMenu menu = new JBPopupMenu(ldapTreeNode.toString());
-        addActionMenuItem(menu, "Refresh", AllIcons.Actions.Refresh, RefreshAction.ID);
+        addActionMenuItem(menu, "Refresh", AllIcons.Actions.Refresh, panel -> panel.refreshSelectedNodes());
         if (ldapTreeNode.getAllowsChildren()) {
-            addActionMenuItem(menu, TextBundle.message("ldapbrowser.new-entry"), PlatformIcons.ADD_ICON, AddEntryAction.ID);
+            addActionMenuItem(menu, TextBundle.message("ldapbrowser.new-entry"), PlatformIcons.ADD_ICON, panel -> AddEntryAction.addEntry(panel, ldapTreeNode));
         }
-        addActionMenuItem(menu, TextBundle.message("ldapbrowser.delete-entry"), PlatformIcons.DELETE_ICON, DeleteEntryAction.ID);
+        addActionMenuItem(menu, TextBundle.message("ldapbrowser.delete-entry"), PlatformIcons.DELETE_ICON, panel -> DeleteEntryAction.deleteEntry(panel, ldapTreeNode));
         menu.show(tree, x, y);
     }
 
@@ -91,12 +81,12 @@ public class LdapTreePanel extends SimpleToolWindowPanel implements ApplicationC
             });
             menu.add(disconnectMenuItem);
         } else {
-            JBMenuItem connectMenuItem = new JBMenuItem(TextBundle.message("ldapbrowser.connect"), AllIcons.General.Run);
+            JBMenuItem connectMenuItem = new JBMenuItem(TextBundle.message("ldapbrowser.connect"), AllIcons.Actions.Execute);
             connectMenuItem.addActionListener(e -> connectToLdapServer(ldapServerTreeNode));
             menu.add(connectMenuItem);
         }
 
-        addActionMenuItem(menu, TextBundle.message("ldapbrowser.refresh"), AllIcons.Actions.Refresh, RefreshAction.ID);
+        addActionMenuItem(menu, TextBundle.message("ldapbrowser.refresh"), AllIcons.Actions.Refresh, panel -> panel.reloadTree());
         menu.show(tree, x, y);
     }
 
@@ -109,11 +99,8 @@ public class LdapTreePanel extends SimpleToolWindowPanel implements ApplicationC
         return null;
     }
 
-    @Override
-    public void initComponent() {
+    private void initPanel() {
         addToolbar();
-
-
 
         tree = new Tree(createTreeModel());
         tree.getEmptyText().setText(TextBundle.message("ldapbrowser.no-connections"));
@@ -179,31 +166,35 @@ public class LdapTreePanel extends SimpleToolWindowPanel implements ApplicationC
         super.setContent(treeScroll);
     }
 
-    private void connectToLdapServer(LdapServerTreeNode node) {
+    public void connectToLdapServer(LdapServerTreeNode node) {
         tree.setPaintBusy(true);
-        try {
-            node.getConnectionInfo().connect();
-        } finally {
-            tree.setPaintBusy(false);
-        }
-        ((DefaultTreeModel) tree.getModel()).nodeStructureChanged(node);
-        TreePath path = new TreePath(node.getPath());
-        tree.expandPath(path);
-    }
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Connecting to LDAP", false) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                boolean connected = node.getConnectionInfo().connect();
+                if (connected) {
+                    node.reloadChildren();
+                }
+                ApplicationManager.getApplication().invokeLater(() -> {
+                    tree.setPaintBusy(false);
+                    if (connected) {
+                        ((DefaultTreeModel) tree.getModel()).nodeStructureChanged(node);
+                        TreePath path = new TreePath(node.getPath());
+                        tree.expandPath(path);
+                    }
+                });
+            }
 
-    @Override
-    public void disposeComponent() {
-
-    }
-
-    @NotNull
-    @Override
-    public String getComponentName() {
-        return COMPONENT_NAME;
+            @Override
+            public void onThrowable(@NotNull Throwable error) {
+                ApplicationManager.getApplication().invokeLater(() -> tree.setPaintBusy(false));
+                org.majki.intellij.ldapbrowser.ldap.ui.LdapErrorHandler.handleError(new Exception(error), "Could not connect to LDAP server");
+            }
+        });
     }
 
     private TreeNode generateTree() {
-        LdapConnectionsService ldapConnectionsService = ApplicationManager.getApplication().getComponent(LdapConnectionsService.class);
+        LdapConnectionsService ldapConnectionsService = ApplicationManager.getApplication().getService(LdapConnectionsService.class);
         return new LdapRootTreeNode(ldapConnectionsService.getLdapConnectionInfos());
     }
 
@@ -223,12 +214,55 @@ public class LdapTreePanel extends SimpleToolWindowPanel implements ApplicationC
         return tree;
     }
 
+    public boolean selectDn(String dn) {
+        if (dn == null || dn.trim().isEmpty()) {
+            return false;
+        }
+        for (int row = 0; row < tree.getRowCount(); row++) {
+            TreePath path = tree.getPathForRow(row);
+            if (path == null) {
+                continue;
+            }
+            Object component = path.getLastPathComponent();
+            if (component instanceof LdapTreeNode && dn.equalsIgnoreCase(((LdapTreeNode) component).getLdapNode().getDn())) {
+                tree.setSelectionPath(path);
+                tree.scrollPathToVisible(path);
+                return true;
+            }
+        }
+        return false;
+    }
+
     private DefaultTreeModel createTreeModel() {
         return new DefaultTreeModel(generateTree());
     }
 
     public void reloadTree() {
         tree.setModel(createTreeModel());
+    }
+
+    public void refreshSelectedNodes() {
+        LdapTreeNode[] selectedTreeNodes = tree.getSelectedNodes(LdapTreeNode.class, null);
+        LdapServerTreeNode[] selectedServerTreeNodes = tree.getSelectedNodes(LdapServerTreeNode.class, null);
+        ProgressManager.getInstance().run(new Task.Backgroundable(project, "Refreshing LDAP", false) {
+            @Override
+            public void run(@NotNull ProgressIndicator indicator) {
+                if (selectedTreeNodes.length > 0) {
+                    for (LdapTreeNode selectedNode : selectedTreeNodes) {
+                        try {
+                            selectedNode.getLdapNode().refreshWithChildren();
+                            ApplicationManager.getApplication().invokeLater(() -> ((DefaultTreeModel) tree.getModel()).nodeStructureChanged(selectedNode));
+                        } catch (Exception e) {
+                            org.majki.intellij.ldapbrowser.ldap.ui.LdapErrorHandler.handleError(e, "Could not refresh node");
+                        }
+                    }
+                }
+
+                if (selectedServerTreeNodes.length > 0) {
+                    ApplicationManager.getApplication().invokeLater(() -> reloadTree());
+                }
+            }
+        });
     }
 
 }

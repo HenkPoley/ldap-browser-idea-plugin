@@ -1,21 +1,34 @@
 <idea-plugin>
-  <id>org.majki.intellij.ldapbrowser</id>
+  <id>org.majki.ldapbrowser</id>
   <name>LDAP browser</name>
   <version>@version@</version>
   <vendor email="support@majki.org" url="https://github.com/majk1/ldap-browser-idea-plugin">Majki</vendor>
 
   <description><![CDATA[
-      Plugin to browse LDAP servers<br/>
-      Using Apache Directory LDAP API version @apacheDirectoryApiVersion@<br/>
-      Currently supported authentication methods are anonymous and simple authentication<br/>
+      <p>LDAP browser adds an LDAP tool window to IntelliJ Platform IDEs, including IntelliJ IDEA, PhpStorm, and other JetBrains products.</p>
+      <p>The plugin can connect to LDAP and LDAPS servers, browse directory entries, inspect and edit entry attributes, and run ad hoc LDAP searches from inside the IDE.</p>
+      <p>Version 1.7 refreshes the plugin for 2026.1 IDE builds and improves Active Directory usage: background connection/search operations, subtree search with referral handling, group member browsing, DN reference navigation from editor tabs, reveal-in-tree support, multi-row attribute copying, and safer display of binary Active Directory attributes.</p>
+      <p>Supported authentication methods are anonymous bind and simple authentication. The plugin uses Apache Directory LDAP API version @apacheDirectoryApiVersion@.</p>
     ]]></description>
 
   <change-notes><![CDATA[
       <ul>
       <li>
-        1.7-SNAPSHOT</br>
+        1.7</br>
         <ul>
-          <li>?</li>
+          <li>Updated compatibility for JetBrains 2026.1 IDEs.</li>
+          <li>Moved LDAP connect, refresh, browse, and search operations off the UI thread to reduce IDE freezes.</li>
+          <li>Added an LDAP Search dialog with base DN, filter, scope, and result limit controls.</li>
+          <li>Added referral-aware LDAP search and browse support, including Active Directory referral URLs.</li>
+          <li>Improved Active Directory browsing with bounded subtree fallback when one-level browse returns no direct children.</li>
+          <li>Added synthetic group member browsing for member and uniqueMember DN attributes.</li>
+          <li>Added editor navigation for DN reference attributes such as memberOf, member, manager, managedBy, and distinguishedName.</li>
+          <li>Added Reveal in LDAP Tree for editor tabs without recursively expanding the directory tree.</li>
+          <li>Improved attribute table selection and copying for multi-valued attributes.</li>
+          <li>Displayed binary attributes safely: objectSid and msExchMasterAccountSid as SIDs, GUID attributes as UUIDs, and opaque binary values as hex.</li>
+          <li>Expanded binary formatting for Active Directory and DNS attributes including mS-DS-ConsistencyGuid, msDFSR GUID fields, msExchMailboxGuid, msExchMailboxSecurityDescriptor, logonHours, pKTGuid, pKT, dNSProperty, and dnsRecord.</li>
+          <li>Fixed port formatting, tree expansion, null child nodes, and editor compatibility exceptions on recent IntelliJ Platform builds.</li>
+          <li>Added clearer Connect and Close Connection toolbar states.</li>
         </ul>
       </li>
       <li>
@@ -75,7 +88,7 @@
     ]]>
   </change-notes>
 
-  <idea-version since-build="171"/>
+  <idea-version since-build="261" until-build="261.*"/>
   <depends>com.intellij.modules.lang</depends>
 
   <resource-bundle>i18n</resource-bundle>
@@ -90,7 +103,10 @@
     <fileIconProvider implementation="org.majki.intellij.ldapbrowser.editor.LdapFileIconProvider"/>
     <editorTabTitleProvider implementation="org.majki.intellij.ldapbrowser.editor.LdapFileIconProvider"/>
     <fileEditorProvider implementation="org.majki.intellij.ldapbrowser.editor.LdapNodeEditorProvider"/>
-    <fileTypeFactory implementation="org.majki.intellij.ldapbrowser.editor.LdapNodeFileTypeFactory"/>
+    <fileType name="LDAP Node"
+              implementationClass="org.majki.intellij.ldapbrowser.editor.LdapNodeFileType"
+              fieldName="INSTANCE"/>
+    <applicationService serviceImplementation="org.majki.intellij.ldapbrowser.ldap.LdapConnectionsService"/>
   </extensions>
 
   <actions>
@@ -100,10 +116,16 @@
     <action id="ldapbrowser.openConnections" class="org.majki.intellij.ldapbrowser.actions.OpenConnectionsAction" text="Open Connections">
       <add-to-group group-id="ldapbrowser.actionGroup"/>
     </action>
+    <action id="ldapbrowser.connectConnection" class="org.majki.intellij.ldapbrowser.actions.ConnectConnectionAction" text="Connect" description="Connect to LDAP server">
+      <add-to-group group-id="ldapbrowser.actionGroup"/>
+    </action>
     <action id="ldapbrowser.closeConnection" class="org.majki.intellij.ldapbrowser.actions.CloseConnectionAction" text="Close Connection">
       <add-to-group group-id="ldapbrowser.actionGroup"/>
     </action>
     <action id="ldapbrowser.refresh" class="org.majki.intellij.ldapbrowser.actions.RefreshAction" text="Refresh" description="Refresh selected node">
+      <add-to-group group-id="ldapbrowser.actionGroup"/>
+    </action>
+    <action id="ldapbrowser.search" class="org.majki.intellij.ldapbrowser.actions.SearchAction" text="Search" description="Search LDAP entries">
       <add-to-group group-id="ldapbrowser.actionGroup"/>
     </action>
     <action id="ldapbrowser.addEntry" class="org.majki.intellij.ldapbrowser.actions.AddEntryAction" text="Add Entry" description="Add a new entry">
@@ -118,6 +140,10 @@
             description="Refresh the attributes in editor">
       <add-to-group group-id="ldapbrowser.editorActionGroup"/>
     </action>
+    <action id="ldapbrowser.revealInTree" class="org.majki.intellij.ldapbrowser.actions.editor.RevealInTreeAction" text="Reveal in LDAP Tree"
+            description="Select this LDAP entry in the LDAP tool window">
+      <add-to-group group-id="ldapbrowser.editorActionGroup"/>
+    </action>
     <action id="ldapbrowser.addAttribute" class="org.majki.intellij.ldapbrowser.actions.editor.AddAttributeAction" text="Add Attribute"
             description="Adds an attribute to the entry">
       <add-to-group group-id="ldapbrowser.editorActionGroup"/>
@@ -127,14 +153,5 @@
       <add-to-group group-id="ldapbrowser.editorActionGroup"/>
     </action>
   </actions>
-
-  <application-components>
-    <component>
-      <implementation-class>org.majki.intellij.ldapbrowser.ldap.LdapConnectionsService</implementation-class>
-    </component>
-    <component>
-      <implementation-class>org.majki.intellij.ldapbrowser.toolwindow.LdapTreePanel</implementation-class>
-    </component>
-  </application-components>
 
 </idea-plugin>

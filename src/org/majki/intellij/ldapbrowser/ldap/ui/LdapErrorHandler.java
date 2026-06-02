@@ -25,8 +25,24 @@ public final class LdapErrorHandler {
         try (PrintWriter writer = new PrintWriter(stringWriter)) {
             e.printStackTrace(writer);
             writer.flush();
-            handleError(stringWriter.toString(), message);
+            handleError(stringWriter.toString(), message + ": " + exceptionSummary(e));
         }
+    }
+
+    private static String exceptionSummary(Throwable throwable) {
+        Throwable rootCause = throwable;
+        while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+            rootCause = rootCause.getCause();
+        }
+
+        String detail = rootCause.getMessage();
+        if (detail == null || detail.trim().isEmpty()) {
+            detail = throwable.getMessage();
+        }
+        if (detail == null || detail.trim().isEmpty()) {
+            return rootCause.getClass().getSimpleName();
+        }
+        return rootCause.getClass().getSimpleName() + " - " + detail;
     }
 
     public static void handleError(String stackTrace, String message) {

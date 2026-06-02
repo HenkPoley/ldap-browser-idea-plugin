@@ -10,6 +10,7 @@ import javax.swing.*;
 
 public class LdapNodeFileType implements FileType {
 
+    public static final LdapNodeFileType INSTANCE = new LdapNodeFileType();
     public static final String EXTENSION = "ldapnode";
 
     @NotNull

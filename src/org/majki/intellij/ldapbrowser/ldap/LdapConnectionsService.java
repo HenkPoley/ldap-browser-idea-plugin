@@ -1,6 +1,5 @@
 package org.majki.intellij.ldapbrowser.ldap;
 
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
@@ -14,10 +13,9 @@ import java.util.List;
 @State(name = "ldapConnections", storages = {
     @Storage("ldapConnections.xml")
 })
-public class LdapConnectionsService implements PersistentStateComponent<LdapConnectionsService.State>, ApplicationComponent {
+public class LdapConnectionsService implements PersistentStateComponent<LdapConnectionsService.State> {
 
-    private static final String COMPONENT_NAME = "ldapbrowser.ldapConnectionsService";
-    private State state;
+    private State state = new State();
 
     @Nullable
     @Override
@@ -28,24 +26,6 @@ public class LdapConnectionsService implements PersistentStateComponent<LdapConn
     @Override
     public void loadState(@NotNull State state) {
         this.state = state;
-    }
-
-    @Override
-    public void initComponent() {
-        if (state == null) {
-            state = new State();
-        }
-    }
-
-    @Override
-    public void disposeComponent() {
-
-    }
-
-    @NotNull
-    @Override
-    public String getComponentName() {
-        return COMPONENT_NAME;
     }
 
     public List<LdapConnectionInfo> getLdapConnectionInfos() {
