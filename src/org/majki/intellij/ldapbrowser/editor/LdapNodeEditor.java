@@ -24,6 +24,7 @@ public class LdapNodeEditor implements FileEditor {
 
     private LdapNodeVirtualFile virtualFile;
     private boolean initialized;
+    private Project project;
 
     private JPanel content;
     private JBTable table;
@@ -32,6 +33,7 @@ public class LdapNodeEditor implements FileEditor {
     private LdapAttributeTableWrapper tableWrapper;
 
     public LdapNodeEditor(@NotNull Project project, @NotNull VirtualFile virtualFile) {
+        this.project = project;
         if (virtualFile instanceof LdapNodeVirtualFile) {
             this.virtualFile = (LdapNodeVirtualFile) virtualFile;
         } else {
@@ -58,12 +60,18 @@ public class LdapNodeEditor implements FileEditor {
     private void initialize() {
         if (!initialized) {
             createToolbar();
-            tableWrapper = new LdapAttributeTableWrapper(table, virtualFile.getLdapTreeNode().getLdapNode());
+            tableWrapper = new LdapAttributeTableWrapper(project, table, virtualFile.getLdapTreeNode().getLdapNode());
             initialized = true;
         }
     }
 
     public LdapNodeVirtualFile getVirtualFile() {
+        return virtualFile;
+    }
+
+    @NotNull
+    @Override
+    public VirtualFile getFile() {
         return virtualFile;
     }
 

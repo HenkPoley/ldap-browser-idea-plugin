@@ -79,7 +79,11 @@ public class LdapAttributeTableModel implements TableModel {
 
     @Override
     public boolean isCellEditable(int rowIndex, int columnIndex) {
-        return COLUMN_EDITABLE[columnIndex];
+        Item item = items.get(rowIndex);
+        return COLUMN_EDITABLE[columnIndex]
+            && item.getValue().isHumanReadable()
+            && !isBinaryDisplayAttribute(item.getAttribute().name())
+            && !isDnReferenceAttribute(item.getAttribute().name());
     }
 
     @Override
@@ -91,7 +95,7 @@ public class LdapAttributeTableModel implements TableModel {
             if (item.getValue().isNull()) {
                 return null;
             } else {
-                return item.getValue().asString();
+                return item.getValue().asDisplayString(item.getAttribute().name());
             }
         } else {
             return null;
@@ -125,6 +129,31 @@ public class LdapAttributeTableModel implements TableModel {
         for (TableModelListener listener : listeners) {
             listener.tableChanged(new TableModelEvent(this, row));
         }
+    }
+
+    static boolean isDnReferenceAttribute(String attributeName) {
+        return "memberof".equalsIgnoreCase(attributeName)
+            || "member".equalsIgnoreCase(attributeName)
+            || "uniquemember".equalsIgnoreCase(attributeName)
+            || "manager".equalsIgnoreCase(attributeName)
+            || "managedby".equalsIgnoreCase(attributeName)
+            || "distinguishedname".equalsIgnoreCase(attributeName);
+    }
+
+    static boolean isBinaryDisplayAttribute(String attributeName) {
+        return "objectguid".equalsIgnoreCase(attributeName)
+            || "msexchmailboxguid".equalsIgnoreCase(attributeName)
+            || "ms-ds-consistencyguid".equalsIgnoreCase(attributeName)
+            || "msdfsr-replicationgroupguid".equalsIgnoreCase(attributeName)
+            || "msdfsr-contentsetguid".equalsIgnoreCase(attributeName)
+            || "pktguid".equalsIgnoreCase(attributeName)
+            || "objectsid".equalsIgnoreCase(attributeName)
+            || "msexchmasteraccountsid".equalsIgnoreCase(attributeName)
+            || "msexchmailboxsecuritydescriptor".equalsIgnoreCase(attributeName)
+            || "logonhours".equalsIgnoreCase(attributeName)
+            || "pkt".equalsIgnoreCase(attributeName)
+            || "dnsproperty".equalsIgnoreCase(attributeName)
+            || "dnsrecord".equalsIgnoreCase(attributeName);
     }
 
 }

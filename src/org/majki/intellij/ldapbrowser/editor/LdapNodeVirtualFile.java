@@ -9,12 +9,11 @@ import org.majki.intellij.ldapbrowser.ldap.LdapNode;
 import org.majki.intellij.ldapbrowser.ldap.ui.LdapTreeNode;
 
 import javax.swing.tree.TreeNode;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.ArrayList;
-import java.util.List;
 
 public class LdapNodeVirtualFile extends VirtualFile {
 
@@ -40,7 +39,7 @@ public class LdapNodeVirtualFile extends VirtualFile {
     @Override
     public String getPath() {
         LdapNode ldapNode = ldapTreeNode.getLdapNode();
-        return ldapNode.getParent() != null ? ldapNode.getParent().getDn() : "";
+        return ldapNode.getDn();
     }
 
     @Override
@@ -50,7 +49,7 @@ public class LdapNodeVirtualFile extends VirtualFile {
 
     @Override
     public boolean isDirectory() {
-        return ldapTreeNode.getAllowsChildren();
+        return false;
     }
 
     @Override
@@ -70,13 +69,7 @@ public class LdapNodeVirtualFile extends VirtualFile {
 
     @Override
     public VirtualFile[] getChildren() {
-        List<VirtualFile> childVirtualFiles = new ArrayList<>();
-        for (TreeNode treeNode : ldapTreeNode.childrenList()) {
-            if (treeNode instanceof LdapTreeNode) {
-                childVirtualFiles.add(((LdapTreeNode) treeNode).getFile());
-            }
-        }
-        return childVirtualFiles.toArray(new VirtualFile[childVirtualFiles.size()]);
+        return VirtualFile.EMPTY_ARRAY;
     }
 
     @NotNull
@@ -108,7 +101,7 @@ public class LdapNodeVirtualFile extends VirtualFile {
 
     @Override
     public InputStream getInputStream() throws IOException {
-        return null;
+        return new ByteArrayInputStream(new byte[0]);
     }
 
     @Override
