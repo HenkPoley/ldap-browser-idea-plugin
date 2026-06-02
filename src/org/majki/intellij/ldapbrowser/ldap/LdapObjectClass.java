@@ -5,6 +5,7 @@ import org.apache.directory.api.ldap.model.schema.ObjectClass;
 import org.apache.directory.api.ldap.model.schema.SchemaObjectWrapper;
 import org.apache.directory.api.ldap.model.schema.registries.Schema;
 import org.apache.directory.ldap.client.api.LdapConnection;
+import com.intellij.openapi.diagnostic.Logger;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -12,6 +13,7 @@ import java.util.stream.Collectors;
 
 public class LdapObjectClass {
 
+    private static final Logger LOGGER = Logger.getInstance(LdapObjectClass.class);
     private static final String TOP = "top";
 
     private LdapObjectClass superObjectClass;
@@ -172,7 +174,12 @@ public class LdapObjectClass {
         Map<String, LdapObjectClass> objectClassMap = new HashMap<>();
 
         LdapConnection connection = ldapConnectionInfo.getLdapConnection();
-        connection.loadSchemaRelaxed();
+        try {
+            connection.loadSchemaRelaxed();
+        } catch (RuntimeException e) {
+            LOGGER.warn("Could not load LDAP schema; using minimal objectClass metadata", e);
+            return fallbackTopObjectClass();
+        }
         for (Schema schema : connection.getSchemaManager().getAllSchemas()) {
             for (SchemaObjectWrapper schemaObjectWrapper : schema.getContent()) {
                 if (schemaObjectWrapper.get() instanceof ObjectClass) {
@@ -202,11 +209,18 @@ public class LdapObjectClass {
         for (LdapObjectClass ldapObjectClass : objectClassMap.values()) {
             if (ldapObjectClass.getSuperClassName() != null) {
                 LdapObjectClass superClass = objectClassMap.get(ldapObjectClass.getSuperClassName().toLowerCase());
-                superClass.getSubObjectClasses().add(ldapObjectClass);
-                ldapObjectClass.setSuperObjectClass(superClass);
+                if (superClass != null) {
+                    superClass.getSubObjectClasses().add(ldapObjectClass);
+                    ldapObjectClass.setSuperObjectClass(superClass);
+                }
             }
         }
 
-        return objectClassMap.get(TOP);
+        LdapObjectClass top = objectClassMap.get(TOP);
+        return top == null ? fallbackTopObjectClass() : top;
+    }
+
+    private static LdapObjectClass fallbackTopObjectClass() {
+        return new LdapObjectClass(null, TOP, "fallback", "Fallback objectClass used when LDAP schema cannot be loaded", Collections.emptySet());
     }
 }

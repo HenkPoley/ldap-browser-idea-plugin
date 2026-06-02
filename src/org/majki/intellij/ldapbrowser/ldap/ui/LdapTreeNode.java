@@ -1,7 +1,6 @@
 package org.majki.intellij.ldapbrowser.ldap.ui;
 
 import com.intellij.openapi.util.IconLoader;
-import com.intellij.util.enumeration.ArrayListEnumeration;
 import org.apache.directory.api.ldap.model.exception.LdapException;
 import org.jetbrains.annotations.Nullable;
 import org.majki.intellij.ldapbrowser.editor.LdapNodeVirtualFile;
@@ -11,6 +10,7 @@ import org.majki.intellij.ldapbrowser.ldap.LdapNode;
 import javax.swing.*;
 import javax.swing.tree.MutableTreeNode;
 import javax.swing.tree.TreeNode;
+import java.util.Collections;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -29,29 +29,30 @@ public class LdapTreeNode extends LdapConnectionInfoTreeNode {
         this.leaf = false;
     }
 
+    public static LdapTreeNode searchResult(LdapConnectionInfo info, LdapNode node) {
+        return new LdapTreeNode(info, null, node);
+    }
+
     private TreeNode createChildNode(LdapNode node) {
         return new LdapTreeNode(getConnectionInfo(), this, node);
     }
 
     @Override
     public TreeNode getChildAt(int childIndex) {
-        try {
-            return createChildNode(node.getChildren().get(childIndex));
-        } catch (LdapException e) {
-            LdapErrorHandler.handleError(e, "Could not get child node at index " + childIndex);
-            return null;
+        List<TreeNode> children = childrenList();
+        if (childIndex >= 0 && childIndex < children.size()) {
+            return children.get(childIndex);
         }
+        return new LdapPlaceholderTreeNode("Tree model changed. Refresh this LDAP entry.");
     }
 
     @Override
     public int getChildCount() {
-        int childCount;
-        try {
-            childCount = node.getChildCount();
-        } catch (LdapException e) {
-            LdapErrorHandler.handleError(e, "Could not get child count");
-            childCount = 0;
+        if (!node.isBrowsableContainer()) {
+            leaf = true;
+            return 0;
         }
+        int childCount = childrenList().size();
         leaf = childCount == 0;
         return childCount;
     }
@@ -73,11 +74,15 @@ public class LdapTreeNode extends LdapConnectionInfoTreeNode {
 
     @Override
     public boolean isLeaf() {
-        return leaf;
+        return !node.isBrowsableContainer() || leaf;
     }
 
     public List<TreeNode> childrenList() {
         ArrayList<TreeNode> childLdapTreeNodes = new ArrayList<>();
+        if (!node.isBrowsableContainer()) {
+            leaf = true;
+            return childLdapTreeNodes;
+        }
         List<LdapNode> children = null;
         try {
             children = node.getChildren();
@@ -87,13 +92,16 @@ public class LdapTreeNode extends LdapConnectionInfoTreeNode {
         if (children != null) {
             childLdapTreeNodes.addAll(children.stream().map(this::createChildNode).collect(Collectors.toList()));
         }
+        if (node.isChildrenTruncated()) {
+            childLdapTreeNodes.add(new LdapPlaceholderTreeNode("More than " + node.getMaxChildrenPerNode() + " entries found. Narrow the Base DN to browse this branch."));
+        }
         leaf = childLdapTreeNodes.isEmpty();
         return childLdapTreeNodes;
     }
 
     @Override
-    public Enumeration children() {
-        return new ArrayListEnumeration((ArrayList) childrenList());
+    public Enumeration<TreeNode> children() {
+        return Collections.enumeration(childrenList());
     }
 
     public LdapNode getLdapNode() {
@@ -107,7 +115,7 @@ public class LdapTreeNode extends LdapConnectionInfoTreeNode {
             return IconLoader.getIcon("/images/domain.png");
         } else if (node.isInstanceOf(LdapNode.OBJECTCLASS_PERSON)) {
             return IconLoader.getIcon("/images/person.png");
-        } else if (node.isInstanceOf(LdapNode.OBJECTCLASS_GROUP_OF_UNIQUE_NAMES)) {
+        } else if (node.isInstanceOf(LdapNode.OBJECTCLASS_GROUP) || node.isInstanceOf(LdapNode.OBJECTCLASS_GROUP_OF_UNIQUE_NAMES)) {
             return IconLoader.getIcon("/images/group.png");
         } else if (getAllowsChildren()) {
             return IconLoader.getIcon("/images/node.png");

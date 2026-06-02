@@ -1,6 +1,6 @@
 package org.majki.intellij.ldapbrowser.ldap;
 
-import com.intellij.icons.AllIcons;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.idea.IdeaLogger;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.Messages;
@@ -15,8 +15,12 @@ import org.majki.intellij.ldapbrowser.TextBundle;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class LdapConnectionInfo implements Serializable {
@@ -127,7 +131,9 @@ public class LdapConnectionInfo implements Serializable {
 
     @Transient
     LdapConnection getLdapConnection() {
-        connect();
+        if (!isOpened()) {
+            connect();
+        }
         return ldapConnection;
     }
 
@@ -136,8 +142,12 @@ public class LdapConnectionInfo implements Serializable {
     }
 
     private LdapConnectionConfig createLdapConnectionConfiguration() {
+        return createLdapConnectionConfiguration(host, port, ssl);
+    }
+
+    private LdapConnectionConfig createLdapConnectionConfiguration(String host, int port, boolean ssl) {
         LdapConnectionConfig config = new LdapConnectionConfig();
-        config.setUseSsl(isSsl());
+        config.setUseSsl(ssl);
         config.setLdapPort(port);
         config.setLdapHost(host);
         config.setUseSsl(ssl);
@@ -147,7 +157,26 @@ public class LdapConnectionInfo implements Serializable {
         return config;
     }
 
-    public void connect() {
+    LdapConnection openReferralConnection(String host, int port, boolean ssl) throws LdapException {
+        LdapNetworkConnection connection = new LdapNetworkConnection(createLdapConnectionConfiguration(host, port, ssl));
+        try {
+            if (auth) {
+                connection.bind(username, password);
+            } else {
+                connection.bind();
+            }
+            return connection;
+        } catch (LdapException e) {
+            connection.close();
+            throw e;
+        }
+    }
+
+    public boolean connect() {
+        if (isOpened()) {
+            return true;
+        }
+        closeQuietly();
         ldapConnection = new LdapNetworkConnection(createLdapConnectionConfiguration());
         try {
             if (auth) {
@@ -155,18 +184,27 @@ public class LdapConnectionInfo implements Serializable {
             } else {
                 ldapConnection.bind();
             }
+            return true;
         } catch (LdapException e) {
+            closeQuietly();
+            if (handleSslUntrustedCertificate(e)) {
+                return connect();
+            } else {
+                showErrorDialog(detailedConnectionFailure(e), TextBundle.message("ldapbrowser.connection-failure"));
+                return false;
+            }
+        }
+    }
+
+    private void closeQuietly() {
+        if (ldapConnection != null) {
             try {
                 ldapConnection.close();
             } catch (IOException ex) {
                 LOGGER.warn("Could not close LDAP connection", ex);
             }
-            if (handleSslUntrustedCertificate(e)) {
-                connect();
-            } else {
-                Messages.showErrorDialog(e.getMessage(), TextBundle.message("ldapbrowser.connection-failure"));
-            }
         }
+        ldapConnection = null;
     }
 
     public void disconnect() {
@@ -175,9 +213,9 @@ public class LdapConnectionInfo implements Serializable {
                 ldapConnection.unBind();
                 ldapConnection.close();
             } catch (LdapException e) {
-                Messages.showErrorDialog(e.getMessage(), TextBundle.message("ldapbrowser.connection-unbind-failure"));
+                showErrorDialog(e.getMessage(), TextBundle.message("ldapbrowser.connection-unbind-failure"));
             } catch (IOException e) {
-                Messages.showErrorDialog(e.getMessage(), TextBundle.message("ldapbrowser.connection-close-failure"));
+                showErrorDialog(e.getMessage(), TextBundle.message("ldapbrowser.connection-close-failure"));
             }
         }
         ldapConnection = null;
@@ -198,8 +236,8 @@ public class LdapConnectionInfo implements Serializable {
             if (e instanceof LdapException && handleSslUntrustedCertificate((LdapException) e)) {
                 return testConnection();
             } else {
-                Messages.showErrorDialog(
-                    TextBundle.message("ldapbrowser.connection-failure-msg", host, port, e.getMessage()),
+                showErrorDialog(
+                    detailedConnectionFailure(e),
                     TextBundle.message("ldapbrowser.connection-failure")
                 );
                 return false;
@@ -214,14 +252,14 @@ public class LdapConnectionInfo implements Serializable {
                 String fingerprint = untrustedCertificate.fingerprint;
                 untrustedCertificate = null;
                 SimpleDateFormat dateFormatter = new SimpleDateFormat("yyyy-MM-dd");
-                int result = Messages.showYesNoDialog(
+                int result = showYesNoDialog(
                     "Certificate subject: " + certificate.getSubjectDN()
                         + ", issuer: " + certificate.getIssuerDN() + "\n"
                         + "Valid from " + dateFormatter.format(certificate.getNotBefore())
                         + " to " + dateFormatter.format(certificate.getNotAfter()),
                     "Trust Certificate?",
                     "Trust", "Do not trust",
-                    AllIcons.General.PasswordLock);
+                    Messages.getQuestionIcon());
                 if (result != Messages.NO) {
                     trustedCertificateFingerprint = fingerprint;
                     return true;
@@ -229,6 +267,48 @@ public class LdapConnectionInfo implements Serializable {
             }
         }
         return false;
+    }
+
+    private String detailedConnectionFailure(Exception exception) {
+        Throwable rootCause = rootCause(exception);
+        String details = rootCause.getMessage() == null ? exception.getMessage() : rootCause.getMessage();
+        String category = connectionFailureCategory(exception, rootCause);
+
+        return "Could not connect to " + asUrl() + "\n"
+            + "Cause: " + category + "\n"
+            + "Details: " + (details == null || details.trim().isEmpty() ? rootCause.getClass().getSimpleName() : details);
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable result = throwable;
+        while (result.getCause() != null && result.getCause() != result) {
+            result = result.getCause();
+        }
+        return result;
+    }
+
+    private String connectionFailureCategory(Throwable exception, Throwable rootCause) {
+        String message = (exception.getMessage() == null ? "" : exception.getMessage()).toLowerCase();
+        String rootMessage = (rootCause.getMessage() == null ? "" : rootCause.getMessage()).toLowerCase();
+        if (exception instanceof LdapTlsHandshakeException || message.contains("ssl") || message.contains("tls")) {
+            return "TLS/SSL handshake or certificate problem";
+        }
+        if (rootCause instanceof UnknownHostException) {
+            return "Unknown LDAP host";
+        }
+        if (rootCause instanceof SocketTimeoutException || message.contains("timeout") || rootMessage.contains("timeout")) {
+            return "Connection timed out";
+        }
+        if (rootCause instanceof ConnectException || rootMessage.contains("connection refused")) {
+            return "Connection refused by LDAP host/port";
+        }
+        if (message.contains("invalid credentials") || message.contains("49")) {
+            return auth ? "Invalid username / Bind DN or password" : "LDAP server rejected anonymous bind";
+        }
+        if (message.contains("schema")) {
+            return "LDAP schema loading failed";
+        }
+        return "LDAP bind or network error";
     }
 
     public String getTrustedCertificateFingerprint() {
@@ -243,6 +323,24 @@ public class LdapConnectionInfo implements Serializable {
         untrustedCertificate = new UntrustedCertificate();
         untrustedCertificate.fingerprint = fingerprint;
         untrustedCertificate.certificate = certificate;
+    }
+
+    private int showYesNoDialog(String message, String title, String yesText, String noText, javax.swing.Icon icon) {
+        if (ApplicationManager.getApplication().isDispatchThread()) {
+            return Messages.showYesNoDialog(message, title, yesText, noText, icon);
+        }
+        AtomicInteger result = new AtomicInteger(Messages.NO);
+        ApplicationManager.getApplication().invokeAndWait(() ->
+            result.set(Messages.showYesNoDialog(message, title, yesText, noText, icon)));
+        return result.get();
+    }
+
+    private void showErrorDialog(String message, String title) {
+        if (ApplicationManager.getApplication().isDispatchThread()) {
+            Messages.showErrorDialog(message, title);
+        } else {
+            ApplicationManager.getApplication().invokeLater(() -> Messages.showErrorDialog(message, title));
+        }
     }
 
     private static class UntrustedCertificate {
